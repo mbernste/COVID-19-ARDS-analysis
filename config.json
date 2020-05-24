@@ -1,0 +1,6 @@
+{
+    "raw_data_location": "/Users/matthewbernstein/Development/covid_19_analysis/AHNMJYDMXX_rsem",
+    "intermediate_data_location": "/Users/matthewbernstein/Development/covid_19_analysis/intermediate",
+    "output_location": "/Users/matthewbernstein/Development/covid_19_analysis/results",
+    "gsva_location": "/Users/matthewbernstein/Development/gsvapy"
+}
