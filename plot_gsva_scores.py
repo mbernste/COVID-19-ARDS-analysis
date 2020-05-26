@@ -9,19 +9,18 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import numpy as np
 from os.path import join
+import json
 
 def main():
     usage = "" # TODO 
     parser = OptionParser(usage=usage)
-    parser.add_option("-s", "--subset", help="One of 'COVID', 'NONCOVID'")
-    parser.add_option("-l", "--log", action="store_true", help="Take log1")
-    parser.add_option("-o", "--output_prefix", help="Output file")
+    parser.add_option("-o", "--out_dir", help="Output directory")
     (options, args) = parser.parse_args()
 
     expr_f = args[0]
     meta_f = args[1]
-    gene_set = args[2] #'GO_MONOCYTE_AGGREGATION'
-    prefix = options.output_prefix
+    gene_sets_f = args[2]
+    out_dir = options.out_dir
 
     expr_df = pd.read_csv(expr_f, sep='\t', index_col=0)
     meta_df = pd.read_csv(meta_f, sep='\t')
@@ -43,28 +42,48 @@ def main():
     expr_df['Hospital_free_days'] = hospital_free
     expr_df = expr_df.sort_values(by='Hospital_free_days')
 
-    plot_df = pd.DataFrame(
-        data=[
-            (str(int(hf)), score)
-            for hf, score in zip(expr_df['Hospital_free_days'], expr_df[gene_set])
-        ],
-        columns=['Hospital_free_days', 'Enrichment score']
-    )
+    # Load the enriched gene-sets
+    with open(gene_sets_f, 'r') as f:
+        db_to_gene_sets = json.load(f)
 
-    fig, ax = plt.subplots(1,1,figsize=(0.1*len(hospital_free),3))
-    #sns.barplot(x=plot_df.index, y=plot_df['Enrichment score'], color="#0052cc", ax=ax, ci=None)
-    sns.barplot(x='Hospital_free_days', y=gene_set, color="#0052cc", data=expr_df, ax=ax, ci='sd')
-    #ax.set_xticklabels(plot_df['Hospital_free_days'])
+    # Plot bargraphs for each enriched gene-set
+    for db, gene_sets in db_to_gene_sets.items():
+        for gene_set in gene_sets:
+            if gene_set not in expr_df.columns:
+                print('Skipping gene set {}. Not found...'.format(gene_set))
+                continue
+            print('Plotting gene set {}.'.format(gene_set))
+            plot_df = pd.DataFrame(
+                data=[
+                    (str(int(hf)), score)
+                    for hf, score in zip(expr_df['Hospital_free_days'], expr_df[gene_set])
+                ],
+                columns=['Hospital_free_days', 'Enrichment score']
+            )
 
-    plt.tight_layout()
-    fig.savefig(
-        'test.pdf',
-        format='pdf',
-        dpi=150
-    )
+            fig, ax = plt.subplots(1,1,figsize=(0.1*len(hospital_free),3))
+            sns.barplot(x='Hospital_free_days', y=gene_set, color="#0052cc", data=expr_df, ax=ax, ci='sd')
+            ax.set_title(_prettify_label(gene_set))
+            ax.set_ylabel('Enrichment Score')
+            ax.set_xlabel('Hospital-free Days')
 
+            plt.tight_layout()
+            fig.savefig(
+                join(out_dir, '{}.pdf'.format(gene_set)),
+                format='pdf',
+                dpi=150
+            )
 
-
+def _prettify_label(gene_set):
+    toks = gene_set.split('_')
+    mod_toks = []
+    for tok_i, tok in enumerate(toks):
+        if tok_i == 0 and tok == 'GO':
+            continue
+        else:
+            tok = tok[0].upper() + tok[1:].lower()
+            mod_toks.append(tok)
+    return ' '.join(mod_toks)
 
 if __name__ == "__main__":
     main()
