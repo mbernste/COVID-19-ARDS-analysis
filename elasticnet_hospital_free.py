@@ -26,7 +26,7 @@ PARAMETERS = {
     'l1_ratio': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
 }
 
-MAX_ITER = 100000
+MAX_ITER = 200000
 
 def main():
     usage = "" # TODO 
@@ -58,20 +58,43 @@ def main():
         
     print(meta_df)
 
-    hospital_free = np.array(meta_df['Hospital_free_days'])
-    hospital_free = np.nan_to_num(hospital_free)
-
-    # Filter expression matrix according to metadata
+    # Align metadata table and expression table
     expr_df = expr_df[meta_df.index]
+    meta_df = meta_df.loc[expr_df.columns]
+
+    hospital_free = np.array(meta_df['Hospital_free_days'])
+    is_male = [
+        int(g == 'M')
+        for g in meta_df['Gender']
+    ]
+    print(is_male)
+    is_female = [
+        int(g == 'F')
+        for g in meta_df['Gender']
+    ]
+    age = np.array(meta_df['Age_less_than_90'])
+    X_clinical = np.array([
+        is_male,
+        is_female,
+        age
+    ]).T
+    
     X = np.array(expr_df)
     X = X.T
     if options.log:
         X = np.log(X+1)
 
+    # Add clinical data
+    print('Shape of gene expression matrix: {}'.format(X.shape))
+    X = np.hstack([X, X_clinical])
+    print('Shape after adding clinical data: {}'.format(X.shape))
+
     model = ElasticNet(max_iter=MAX_ITER)
     #model = SGDRegressor(penalty='elasticnet')
+    print('Performing grid-search cross-validation...')
     clf = GridSearchCV(model, PARAMETERS, scoring='neg_mean_squared_error')
     clf.fit(X, hospital_free)
+    print('done.')
     print(sorted(clf.cv_results_.keys()))
     print(clf.cv_results_['param_alpha'])
     print(clf.cv_results_['mean_test_score'])
@@ -89,9 +112,10 @@ def main():
     model.fit(X, hospital_free)
     coeffs = model.coef_
 
+    feats = list(expr_df.index) + ['is_male', 'is_female', 'age']
     non_zero_feats = [
         feat 
-        for feat, coef in zip(expr_df.index, coeffs)
+        for feat, coef in zip(feats, coeffs)
         if coef > 0.0
     ]
     print("{} non-zero features.".format(len(non_zero_feats)))

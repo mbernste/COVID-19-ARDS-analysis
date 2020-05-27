@@ -42,37 +42,57 @@ def main():
     expr_df['Hospital_free_days'] = hospital_free
     expr_df = expr_df.sort_values(by='Hospital_free_days')
 
+    print(expr_df)
+
     # Load the enriched gene-sets
-    with open(gene_sets_f, 'r') as f:
-        db_to_gene_sets = json.load(f)
+    if gene_sets_f.split('.')[-1] == 'json':
+        with open(gene_sets_f, 'r') as f:
+            db_to_gene_sets = json.load(f)
+        all_gene_sets = set()
+        for gene_sets in db_to_gene_sets.values():
+            all_gene_sets.update(gene_sets)
+    elif gene_sets_f.split('.')[-1] == 'tsv':
+        with open(gene_sets_f, 'r') as f:
+            all_gene_sets = [l.strip() for l in f]
 
     # Plot bargraphs for each enriched gene-set
-    for db, gene_sets in db_to_gene_sets.items():
-        for gene_set in gene_sets:
-            if gene_set not in expr_df.columns:
-                print('Skipping gene set {}. Not found...'.format(gene_set))
-                continue
-            print('Plotting gene set {}.'.format(gene_set))
-            plot_df = pd.DataFrame(
-                data=[
-                    (str(int(hf)), score)
-                    for hf, score in zip(expr_df['Hospital_free_days'], expr_df[gene_set])
-                ],
-                columns=['Hospital_free_days', 'Enrichment score']
-            )
+    for gene_set in all_gene_sets:
+        if gene_set not in expr_df.columns:
+            print('Skipping gene set {}. Not found...'.format(gene_set))
+            continue
+        print('Plotting gene set {}.'.format(gene_set))
+        plot_df = pd.DataFrame(
+            data=[
+                (str(int(hf)), score)
+                for hf, score in zip(expr_df['Hospital_free_days'], expr_df[gene_set])
+            ],
+            columns=['Hospital_free_days', 'Enrichment score']
+        )
 
-            fig, ax = plt.subplots(1,1,figsize=(0.1*len(hospital_free),3))
-            sns.barplot(x='Hospital_free_days', y=gene_set, color="#0052cc", data=expr_df, ax=ax, ci='sd')
-            ax.set_title(_prettify_label(gene_set))
-            ax.set_ylabel('Enrichment Score')
-            ax.set_xlabel('Hospital-free Days')
+        # Bar graph
+        fig, ax = plt.subplots(1,1,figsize=(0.1*len(hospital_free),3))
+        sns.barplot(x='Hospital_free_days', y=gene_set, color="#0052cc", data=expr_df, ax=ax, ci='sd')
+        ax.set_title(_prettify_label(gene_set))
+        ax.set_ylabel('Enrichment Score')
+        ax.set_xlabel('Hospital-free Days')
+        plt.tight_layout()
+        fig.savefig(
+            join(out_dir, '{}.bar.pdf'.format(gene_set)),
+            format='pdf',
+            dpi=150
+        )
 
-            plt.tight_layout()
-            fig.savefig(
-                join(out_dir, '{}.pdf'.format(gene_set)),
-                format='pdf',
-                dpi=150
-            )
+        fig, ax = plt.subplots(1,1,figsize=(3,3))
+        sns.regplot(y='Hospital_free_days', x=gene_set, color="#0052cc", data=expr_df, ax=ax)
+        ax.set_title(_prettify_label(gene_set))
+        ax.set_ylabel('Enrichment Score')
+        ax.set_xlabel('Hospital-free Days')
+        plt.tight_layout()
+        fig.savefig(
+            join(out_dir, '{}.reg.pdf'.format(gene_set)),
+            format='pdf',
+            dpi=150
+        )
 
 def _prettify_label(gene_set):
     toks = gene_set.split('_')

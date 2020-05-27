@@ -16,7 +16,15 @@ import gseapy as gp
 import json
 
 
-GENE_SETS = ['GO_Biological_Process_2018', 'GO_Molecular_Function_2018', 'KEGG_2016']
+#GENE_SETS = ['GO_Biological_Process_2018', 'GO_Molecular_Function_2018', 'KEGG_2019_Human']
+#GENE_SETS = ['/Users/matthewbernstein/Development//gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt']
+GENE_SETS = {
+        'GO_molecular_function': '../gsvapy/gene_sets/c5.mf.v7.1.symbols.gmt',
+        'GO_biological_process': '../gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt',
+        'MSigDB_Canonical_Pathways': '../gsvapy/gene_sets/c2.cp.v7.1.symbols.gmt',
+        'MSigDB_Immunological_Signatures': '../gsvapy/gene_sets/c7.all.v7.1.symbols.gmt',
+        'MSigDB_Hallmark': '../gsvapy/gene_sets/h.all.v7.1.symbols.gmt'
+}
 GSEA_THRESH = 0.05
 
 def main():
@@ -25,28 +33,31 @@ def main():
     parser.add_option("-o", "--out_file", help="OUTPUT file")
     (options, args) = parser.parse_args()
 
-    de_up_genes_f = args[0]
-    de_down_genes_f = args[1]
+    de_genes_fs = args[0].split(',')
     out_f = options.out_file
 
-    with open(de_up_genes_f, 'r') as f:
-        up_genes = [l for l in f]
-    with open(de_down_genes_f, 'r') as f:
-        down_genes = [l for l in f]
-    de_genes = set(up_genes) | set(down_genes)
+    de_genes = set()
+    for de_genes_f in de_genes_fs:
+        with open(de_genes_f, 'r') as f:
+            genes = [l for l in f]
+        de_genes.update(genes)
 
     db_to_gene_sets = {}
-    for db in GENE_SETS:
+    for db_name, db in GENE_SETS.items():
         enr = gp.enrichr(
-            gene_list=list(de_genes),
+            gene_list=[x.strip() for x in de_genes],
             gene_sets=[db],
+            background=19463,
             no_plot=True,
             cutoff=0.05  # test dataset, use lower value from range(0,1)
         )
         enr.results = enr.results[enr.results["Adjusted P-value"] < GSEA_THRESH]
-        print(enr.results)
-        sig_terms = sorted(set(enr.results['Term']))
-        db_to_gene_sets[db] = sig_terms
+        sig_terms = {
+            str(row[0]): float(row[1])
+            for row_i, row in enr.results[['Term', 'Adjusted P-value']].iterrows()
+        }
+        print(sig_terms)
+        db_to_gene_sets[db_name] = sig_terms
 
     with open(out_f, 'w') as f:
         json.dump(db_to_gene_sets, f, indent=4)

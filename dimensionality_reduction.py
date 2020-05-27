@@ -33,11 +33,23 @@ def main():
     meta_df = meta_df.drop(no_expression_data)
 
     # Rmoeve non-COVID patients
-    meta_df = meta_df.loc[meta_df['COVID'] == 1]
-    print(meta_df)
+    if options.subset == 'COVID':
+        meta_df = meta_df.loc[meta_df['COVID'] == 1]
 
+    # Get metadata
     hospital_free = np.array(meta_df['Hospital_free_days'])
-    hospital_free = np.nan_to_num(hospital_free)
+    icu_status = []
+    for is_icu in meta_df['ICU_1']:
+        if is_icu == 1:
+            icu_status.append('True')
+        else:
+            icu_status.append('False')
+    covid_status = []
+    for is_covid in meta_df['COVID']:
+        if is_covid == 1:
+            covid_status.append('True')
+        else:
+            covid_status.append('False')
 
     # Filter expression matrix according to metadata
     expr_df = expr_df[meta_df.index]
@@ -55,22 +67,54 @@ def main():
         'Hospital Free Days',
         '{}.PCA_hospital_free.pdf'.format(prefix)
     )
-
-    mod_tsne = TSNE(n_components=2, perplexity=6)
-    mod_pca_100 = PCA(n_components=min([100, len(X)]))
-    X_pca_100 = mod_pca_100.fit_transform(X)
-    print(X_pca_100.shape)
-    print('Fitting t-SNE...')
-    X_tsne = mod_tsne.fit_transform(X_pca_100)
-    print('done.')
-    _plot_scatter(
-        X_tsne,
-        't-SNE',
-        hospital_free,
-        'Hospital Free Days',
-        '{}.tSNE_hospital_free.pdf'.format(prefix)
+    _plot_scatter_discrete(
+        X_pca,
+        'PCA',
+        icu_status,
+        'ICU Status',
+        '{}.PCA_icu_status.pdf'.format(prefix)
     )
+    if options.subset is None:
+        _plot_scatter_discrete(
+            X_pca,
+            'PCA',
+            covid_status,
+            'COVID-19\nStatus',
+            '{}.PCA_covid_status.pdf'.format(prefix)
+        )
 
+    for perp in [5,6,7,8,9,10]:
+        mod_tsne = TSNE(n_components=2, perplexity=perp)
+        mod_pca_100 = PCA(n_components=min([100, len(X)]))
+        X_pca_100 = mod_pca_100.fit_transform(X)
+        print(X_pca_100.shape)
+        print('Fitting t-SNE...')
+        X_tsne = mod_tsne.fit_transform(X_pca_100)
+        print('done.')
+        _plot_scatter(
+            X_tsne,
+            't-SNE',
+            hospital_free,
+            'Hospital Free Days',
+            '{}.tSNE_perp_{}_hospital_free.pdf'.format(prefix, perp)
+        )
+        _plot_scatter_discrete(
+            X_tsne,
+            't-SNE',
+            icu_status,
+            'ICU Status',
+            '{}.tSNE_perp_{}_icu_status.pdf'.format(prefix, perp)
+        )
+        if options.subset is None:
+            _plot_scatter_discrete(
+                X_tsne,
+                't-SNE',
+                covid_status,
+                'COVID-19\nStatus',
+                '{}.tSNE_perp_{}_covid_status.pdf'.format(prefix, perp)
+            )
+
+    # Linear discriminant analysis for hospital-free days
     s_hospital_free = sorted(set(hospital_free))
     one_third = int(len(s_hospital_free)/3)
     first_thresh = s_hospital_free[one_third]
@@ -95,6 +139,7 @@ def main():
         '{}.LDA_hospital_free.pdf'.format(prefix)
     )
 
+
 def _plot_scatter(X, units, color_vals, color_variable, out_f):
     df = pd.DataFrame(
         [
@@ -108,7 +153,12 @@ def _plot_scatter(X, units, color_vals, color_variable, out_f):
         ]
     )
     fig, ax = plt.subplots(1,1,figsize=(4,4))
-    sc = ax.scatter(df['{} 1'.format(units)], df['{} 2'.format(units)], c=df[color_variable], cmap='viridis')
+    sc = ax.scatter(
+        df['{} 1'.format(units)], 
+        df['{} 2'.format(units)], 
+        c=df[color_variable], 
+        cmap='viridis'
+    )
     plt.colorbar(sc)
     ax.set_xlabel('{} 1'.format(units))
     ax.set_ylabel('{} 2'.format(units))
@@ -123,6 +173,36 @@ def _plot_scatter(X, units, color_vals, color_variable, out_f):
     )
 
 
+def _plot_scatter_discrete(X, units, color_vals, color_variable, out_f):
+    df = pd.DataFrame(
+        [
+            (d1, d2, col)
+            for (d1, d2), col in zip(X, color_vals)
+        ],
+        columns=[
+            '{} 1'.format(units),
+            '{} 2'.format(units),
+            color_variable
+        ]
+    )
+
+    fig, ax = plt.subplots(1,1,figsize=(4,3))
+    sns.scatterplot(
+        x='{} 1'.format(units),
+        y='{} 2'.format(units),
+        hue=color_variable,
+        data=df,
+        ax=ax
+    )
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.tight_layout()
+    fig.savefig(
+        out_f,
+        format='pdf',
+        dpi=150
+    )
 
 
 if __name__ == "__main__":

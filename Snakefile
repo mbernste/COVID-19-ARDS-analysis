@@ -4,18 +4,12 @@ configfile: 'config.json'
 
 rule all:
     input:
-        '{}/COVID_ICU_DE_GSEA.json'.format(config['output_location']),
-        '{}/NONCOVID_ICU_DE_GSEA.json'.format(config['output_location']),
-        '{}/no_hg.no_C054.only_COVID.PCA_hospital_free.pdf'.format(
-            config['output_location']
-        ),
-        '{}/no_hg.no_C054.only_COVID.tSNE_hospital_free.pdf'.format(
-            config['output_location']
-        ),
-        '{}/no_hg.no_C054.only_COVID.LDA_hospital_free.pdf'.format(
-            config['output_location']
-        )
-        
+        '{}/COVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location']),
+        '{}/NONCOVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location']),
+        '{}/ICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location']),
+        '{}/NONICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location'])                
+               
+ 
 ###############################################################
 #   Data preprocessing
 ###############################################################
@@ -217,13 +211,12 @@ rule run_dimension_reduction_gsva_kegg_COVID:
         shell('echo "{}"'.format(cmd))
         shell(cmd)
 
-# TODO maybe we should get rid of this
 rule run_ElasticNet_regression_GSVA_COVID:
     input:
         gsva='{}/gsva.no_hg.no_C054.tsv'.format(
             config['output_location']
         ),
-        meta='{}/DCD.tab'.format(
+        meta='{}/DCD_v2.tsv'.format(
             config['raw_data_location']
         )
     output:
@@ -231,7 +224,7 @@ rule run_ElasticNet_regression_GSVA_COVID:
             config['output_location']
         )
     run:
-        cmd='python elasticnet_hospital_free.py {{input.gsva}} {{input.meta}} -l -s COVID -o {out}/EN_GSVA_GO_biological_processes.only_COVID'.format(
+        cmd='python elasticnet_hospital_free.py {{input.gsva}} {{input.meta}} -s COVID -o {out}/EN_GSVA_GO_biological_processes.only_COVID'.format(
             out=config['output_location']
         )
         shell('echo "{}"'.format(cmd))
@@ -275,7 +268,7 @@ rule gsea_elastic_net_expression_covid:
 #######################################################
 #   Create barplots for all enrichment scores
 #######################################################
-rule gsva_bar_plots_GO_biological_process:
+rule gsva_plots_EN_genes:
     input:
         gsva_go_bp='{}/gsva.no_hg.no_C054.tsv'.format(
             config['output_location']
@@ -303,23 +296,45 @@ rule gsva_bar_plots_GO_biological_process:
         )
     run:
         cmds=[
-            'mkdir -p {}/GSVA_barplots_for_EN_GSEA_results'.format(config['output_location']),
-            'python plot_gsva_scores.py {{input.gsva_go_bp}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'mkdir -p {}/GSVA_figures'.format(config['output_location']),
+            'python plot_gsva_scores.py {{input.gsva_go_bp}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             ),
-            'python plot_gsva_scores.py {{input.gsva_go_mf}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'python plot_gsva_scores.py {{input.gsva_go_mf}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             ),
-            'python plot_gsva_scores.py {{input.gsva_kegg}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'python plot_gsva_scores.py {{input.gsva_kegg}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             ),
-            'python plot_gsva_scores.py {{input.gsva_canon}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'python plot_gsva_scores.py {{input.gsva_canon}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             ),
-            'python plot_gsva_scores.py {{input.gsva_hall}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'python plot_gsva_scores.py {{input.gsva_hall}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             ),
-            'python plot_gsva_scores.py {{input.gsva_immun}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_barplots_for_EN_GSEA_results'.format(
+            'python plot_gsva_scores.py {{input.gsva_immun}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
+                out=config['output_location']
+            )
+        ]
+        for cmd in cmds:
+            shell('echo "{}"'.format(cmd))
+            shell(cmd)
+
+rule gsva_plots_EN_GSVA:
+    input:
+        gsva_go_bp='{}/gsva.no_hg.no_C054.tsv'.format(
+            config['output_location']
+        ),
+        meta='{}/DCD_v2.tsv'.format(
+            config['raw_data_location']
+        ),
+        gsea='{}/EN_GSVA_GO_biological_processes.only_COVID.kept_features.tsv'.format(
+            config['output_location']
+        )
+    run:
+        cmds=[
+            'mkdir -p {}/GSVA_figures'.format(config['output_location']),
+            'python plot_gsva_scores.py {{input.gsva_go_bp}} {{input.meta}} {{input.gsea}} -o {out}/GSVA_figures'.format(
                 out=config['output_location']
             )
         ]
@@ -329,23 +344,43 @@ rule gsva_bar_plots_GO_biological_process:
             
 
 #######################################################
-#   GSEA on DE genes
+#   FET on DE genes
 #######################################################
 
 # COVID ICU vs. non-ICU
 rule covid_ICU_DE:
     output:
-        '{}/COVID_ICU_DE_GSEA.json'.format(config['output_location'])
+        '{}/COVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location'])
     run:
         cmd='python gsea.py COVID_ICU_ebseq/Up.Genes.pp95.txt,COVID_ICU_ebseq/Down.Genes.pp95.txt -o {output}'
+        shell('echo "{}"'.format(cmd))
+        shell(cmd)
 
+# non-COVID ICU vs. non-ICU
 rule noncovid_ICU_DE:
     output:
-        '{}/NONCOVID_ICU_DE_GSEA.json'.format(config['output_location'])
+        '{}/NONCOVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location'])
     run:
         cmd='python gsea.py NONCOVID_ICU_ebseq/Up.Genes.pp95.txt,NONCOVID_ICU_ebseq/Down.Genes.pp95.txt -o {output}'
+        shell('echo "{}"'.format(cmd))
+        shell(cmd)
 
+# ICU COVID vs. non-COVID
+rule icu_covid_vs_noncovid_DE:
+    output:
+        '{}/ICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location'])
+    run:
+        cmd='python gsea.py ebseq_ICU.COVID.v.NON_COVID/Up.Genes.pp95.txt,ebseq_ICU.COVID.v.NON_COVID/Down.Genes.pp95.txt -o {output}'
+        shell('echo "{}"'.format(cmd))
+        shell(cmd)
 
-
+# non-ICU COVID vs. non-COVID
+rule nonicu_covid_vs_noncovid_DE:
+    output:
+        '{}/NONICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location'])
+    run:
+        cmd='python gsea.py ebseq_NO_ICU.COVID.v.NON_COVID/Up.Genes.pp95.txt,ebseq_NO_ICU.COVID.v.NON_COVID/Down.Genes.pp95.txt -o {output}'
+        shell('echo "{}"'.format(cmd))
+        shell(cmd)
 
 
