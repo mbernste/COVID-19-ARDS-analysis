@@ -23,7 +23,18 @@ PARAMETERS = {
         10.0,
         100.0
     ],
-    'l1_ratio': [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    'l1_ratio': [
+        0.1, 
+        0.2, 
+        0.3, 
+        0.4, 
+        0.5, 
+        0.6, 
+        0.7, 
+        0.8, 
+        0.9, 
+        1.0
+    ]
 }
 
 MAX_ITER = 200000
@@ -78,7 +89,9 @@ def main():
         is_female,
         age
     ]).T
-    
+   
+    print(expr_df)
+
     X = np.array(expr_df)
     X = X.T
     if options.log:
@@ -90,38 +103,83 @@ def main():
     print('Shape after adding clinical data: {}'.format(X.shape))
 
     model = ElasticNet(max_iter=MAX_ITER)
-    #model = SGDRegressor(penalty='elasticnet')
     print('Performing grid-search cross-validation...')
-    clf = GridSearchCV(model, PARAMETERS, scoring='neg_mean_squared_error')
+    clf = GridSearchCV(
+        model, 
+        PARAMETERS, 
+        scoring='neg_mean_squared_error'
+    )
     clf.fit(X, hospital_free)
     print('done.')
     print(sorted(clf.cv_results_.keys()))
     print(clf.cv_results_['param_alpha'])
     print(clf.cv_results_['mean_test_score'])
 
+    # Select the best-performing parameters
     best_params = max(
-        zip(clf.cv_results_['param_alpha'], clf.cv_results_['param_l1_ratio'], clf.cv_results_['mean_test_score']),
+        zip(
+            clf.cv_results_['param_alpha'], 
+            clf.cv_results_['param_l1_ratio'], 
+            clf.cv_results_['mean_test_score']
+        ),
         key=lambda x: x[2]
     )
     best_alpha = best_params[0]
     best_ratio = best_params[1]
     print('Max (alpha, ratio): ({}, {})'.format(best_alpha, best_ratio))
 
-    model = ElasticNet(alpha=best_alpha, l1_ratio=best_ratio, max_iter=MAX_ITER)
-    #model = SGDRegressor(penalty='elasticnet', alpha=best_alpha, l1_ratio=best_ratio)
+    # Fit the final model
+    model = ElasticNet(
+        alpha=best_alpha, 
+        l1_ratio=best_ratio, 
+        max_iter=MAX_ITER
+    )
     model.fit(X, hospital_free)
     coeffs = model.coef_
 
     feats = list(expr_df.index) + ['is_male', 'is_female', 'age']
-    non_zero_feats = [
-        feat 
+    print(feats)
+
+    # Select positive coefficients
+    up_model_coeffs = [
+        (feat, coef)
         for feat, coef in zip(feats, coeffs)
         if coef > 0.0
     ]
-    print("{} non-zero features.".format(len(non_zero_feats)))
-   
-    with open('{}.kept_features.tsv'.format(prefix), 'w') as f:
-        f.write('\n'.join(non_zero_feats))
+    up_model_coeffs_df = pd.DataFrame(
+        data=up_model_coeffs, 
+        columns=['feature', 'coefficient']
+    )
+    up_model_coeffs_df = up_model_coeffs_df.set_index('feature')
+    up_model_coeffs_df = up_model_coeffs_df.sort_values(
+        by='coefficient', 
+        axis=0, 
+        ascending=False
+    )
+    up_model_coeffs_df.to_csv(
+        '{}.positive_features.tsv'.format(prefix), 
+        sep='\t'
+    )
+    print("{} positive-zero features.".format(len(up_model_coeffs)))
+    
+    # Select negative coefficients
+    down_model_coeffs = [
+        (feat, coef)
+        for feat, coef in zip(feats, coeffs)
+        if coef < 0.0
+    ]
+    down_model_coeffs_df = pd.DataFrame(
+        data=down_model_coeffs, 
+        columns=['feature', 'coefficient']
+    )
+    down_model_coeffs_df = down_model_coeffs_df.set_index('feature')
+    down_model_coeffs_df = down_model_coeffs_df.sort_values(
+        by='coefficient', 
+        axis=0, 
+        ascending=False
+    )
+    down_model_coeffs_df.to_csv('{}.negative_features.tsv'.format(prefix), sep='\t')
+    print("{} negative-zero features.".format(len(down_model_coeffs)))
 
     preds = model.predict(X)
     mae = metrics.mean_absolute_error(hospital_free, preds)
