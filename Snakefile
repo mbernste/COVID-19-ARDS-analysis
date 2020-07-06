@@ -40,6 +40,22 @@ rule remove_duplicate_patient:
 ###############################################################
 #   Run GSVA
 ###############################################################
+rule run_gsva_Human_Gene_Atlas_immune:
+    input:
+        '{}/genes.ec.no_hg.no_C054.tab'.format(
+            config['intermediate_data_location']
+        )
+    output:
+        '{}/gsva_human_gene_atlas_immune.no_hg.no_C054.tsv'.format(
+            config['output_location']
+        )
+    run:
+        cmd='python {gsva}/run_gsva.py {{input}} ./gene_sets/Human_Gene_Atlas.gmt -o {{output}}'.format(
+            gsva=config['gsva_location']
+        )
+        shell('echo "{}"'.format(cmd))
+        shell(cmd)
+
 rule run_gsva_GO_biological_process:
     input:
         '{}/genes.ec.no_hg.no_C054.tab'.format(
@@ -216,7 +232,7 @@ rule run_ElasticNet_regression_GSVA_COVID:
         gsva='{}/gsva.no_hg.no_C054.tsv'.format(
             config['output_location']
         ),
-        meta='{}/DCD_v2.tsv'.format(
+        meta='{}/DCD_v3.tsv'.format(
             config['raw_data_location']
         )
     output:
@@ -224,44 +240,55 @@ rule run_ElasticNet_regression_GSVA_COVID:
             config['output_location']
         )
     run:
-        cmd='python elasticnet_hospital_free.py {{input.gsva}} {{input.meta}} -s COVID -o {out}/EN_GSVA_GO_biological_processes.only_COVID'.format(
+        cmd='python elastic_net_hospital_free.py {{input.gsva}} {{input.meta}} -s COVID -o {out}/EN_GSVA_GO_biological_processes.only_COVID'.format(
             out=config['output_location']
         )
         shell('echo "{}"'.format(cmd))
         shell(cmd)
 
+#############################################################
+#   Run elastic net regression on gene expression data
+#############################################################
 rule run_ElasticNet_regression_expression_COVID:
     input:
         tpm='{}/genes.tpm.no_hg.tab'.format(
             config['raw_data_location']
         ),
-        meta='{}/DCD_v2.tsv'.format(
+        meta='{}/DCD_v3.tsv'.format(
             config['raw_data_location']
         )
     output:
-        '{}/EN_genes.only_COVID.kept_features.tsv'.format(
+        '{}/regression_analysis/EN_genes.only_COVID.positive_features.tsv'.format(
+            config['output_location']
+        ),
+        '{}/regression_analysis/EN_genes.only_COVID.negative_features.tsv'.format(
             config['output_location']
         )
     run:
-        cmd='python elasticnet_hospital_free.py {{input.tpm}} {{input.meta}} -l -s COVID -o {out}/EN_genes.only_COVID'.format(
-            out=config['output_location']
-        )
-        shell('echo "{}"'.format(cmd))
-        shell(cmd)
+        
+        cmds=[
+            'mkdir -p {}/regression_analysis'.format(config['output_location']),
+            'python elastic_net_hospital_free.py {{input.tpm}} {{input.meta}} -l -s COVID -o {out}/regression_analysis/EN_genes.only_COVID'.format(
+                out=config['output_location']
+            )
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
 
 rule gsea_elastic_net_expression_covid:
     input:
-        pos='{}/EN_genes.only_COVID.positive_features.tsv'.format(
+        pos='{}/regression_analysis/EN_genes.only_COVID.positive_features.tsv'.format(
             config['output_location']
         ),
-        neg='{}/EN_genes.only_COVID.negative_features.tsv'.format(
+        neg='{}/regression_analysis/EN_genes.only_COVID.negative_features.tsv'.format(
             config['output_location']
         )
     output:
-        pos='{}/EN_genes.only_COVID.GSEA_positive.tsv'.format(
+        pos='{}/regression_analysis/EN_genes.only_COVID.GSEA_positive.tsv'.format(
             config['output_location']
         ),
-        neg='{}/EN_genes.only_COVID.GSEA_negative.tsv'.format(
+        neg='{}/regression_analysis/EN_genes.only_COVID.GSEA_negative.tsv'.format(
             config['output_location']
         )
     run:
@@ -274,15 +301,30 @@ rule gsea_elastic_net_expression_covid:
             shell(c)
 
 NEG_HALLMARK_SETS = [
-    'HALLMARK_COAGULATION',
-    'HALLMARK_INTERFERON_GAMMA_RESPONSE',
-    'HALLMARK_INTERFERON_ALPHA_RESPONSE',
-    'HALLMARK_INFLAMMATORY_RESPONSE'
+    'GO_INNATE_IMMUNE_RESPONSE',
+    'GO_INFLAMMATORY_RESPONSE',
+    'REACTOME_EXTRACELLULAR_MATRIX_ORGANIZATION',
+    'GO_LEUKOCYTE_ADHESION_TO_VASCULAR_ENDOTHELIAL_CELL',
+    'GO_REGULATION_OF_CELL_CELL_ADHESION',
+    'GO_CYTOKINE_PRODUCTION',
+    'REACTOME_ACTIVATION_OF_MATRIX_METALLOPROTEINASES',
+    'GO_RESPONSE_TO_LIPID',
+    'GO_MACROPHAGE_APOPTOTIC_PROCESS',
+    'GO_MACROPHAGE_ACTIVATION',
+    'GO_RESPONSE_TO_WOUNDING',
+    'REACTOME_ERYTHROCYTES_TAKE_UP_OXYGEN_AND_RELEASE_CARBON_DIOXIDE',
+    'KEGG_CELL_ADHESION_MOLECULES_CAMS',
+    'GO_REGULATION_OF_B_CELL_ACTIVATION',
+    'GO_INOSITOL_LIPID_MEDIATED_SIGNALING',
+    'GO_NEGATIVE_REGULATION_OF_ADAPTIVE_IMMUNE_RESPONSE',
+    'GO_RESPONSE_TO_VIRUS',
+    'KEGG_SYSTEMIC_LUPUS_ERYTHEMATOSUS',
+    'KEGG_PRIMARY_IMMUNODEFICIENCY'
 ]
 rule elastic_net_negative_hallmark_heatmaps:
     output:
         [
-            '{out}/COVID_elastic_net_heatmaps/{g_set}.heatmap.pdf'.format(
+            '{out}/regression_analysis/heatmaps/{g_set}.heatmap.pdf'.format(
                 out=config['output_location'],
                 g_set=g_set
             )
@@ -290,7 +332,7 @@ rule elastic_net_negative_hallmark_heatmaps:
         ]
     run:
         cmds = [
-            'python heatmap_from_regression.py ../gsvapy/gene_sets/h.all.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v2.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -d'.format(
+            'python heatmap_from_regression.py gene_sets {g_set} {out}/regression_analysis/EN_genes.only_COVID.positive_features.tsv {out}/regression_analysis/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v3.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/regression_analysis/heatmaps -a'.format(
                 out=config['output_location'],
                 g_set=g_set
             )
@@ -300,15 +342,137 @@ rule elastic_net_negative_hallmark_heatmaps:
             shell('echo "{}"'.format(c))
             shell(c)
 
-NEG_GO_SETS = [
-    'GO_HUMORAL_IMMUNE_RESPONSE',
+#### Drop zero hospital-free days
+rule run_ElasticNet_regression_expression_COVID_greater_zero_days:
+    input:
+        tpm='{}/genes.tpm.no_hg.tab'.format(
+            config['raw_data_location']
+        ),
+        meta='{}/DCD_v3.tsv'.format(
+            config['raw_data_location']
+        )
+    output:
+        '{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.positive_features.tsv'.format(
+            config['output_location']
+        ),
+        '{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.negative_features.tsv'.format(
+            config['output_location']
+        )
+    run:
+
+        cmds=[
+            'mkdir -p {}/regression_analysis'.format(config['output_location']),
+            'python elastic_net_hospital_free.py {{input.tpm}} {{input.meta}} -l -s COVID -z -o {out}/regression_analysis/EN_genes.only_COVID.days_greater_zero'.format(
+                out=config['output_location']
+            )
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
+rule gsea_elastic_net_expression_covid_greater_zero_days:
+    input:
+        pos='{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.positive_features.tsv'.format(
+            config['output_location']
+        ),
+        neg='{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.negative_features.tsv'.format(
+            config['output_location']
+        )
+    output:
+        pos='{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.GSEA_positive.tsv'.format(
+            config['output_location']
+        ),
+        neg='{}/regression_analysis/EN_genes.only_COVID.days_greater_zero.GSEA_negative.tsv'.format(
+            config['output_location']
+        )
+    run:
+        cmds=[
+            'python gsea_regression_output.py {input.neg} -o {output.neg}',
+            'python gsea_regression_output.py {input.pos} -o {output.pos}'
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
+ALL_SETS_DAYS_GREATER_ZERO = [
     'GO_INNATE_IMMUNE_RESPONSE',
     'GO_INFLAMMATORY_RESPONSE',
+    'GO_CYTOKINE_PRODUCTION',
+    'GO_INTERLEUKIN_18_MEDIATED_SIGNALING_PATHWAY',
+    'GO_INTERLEUKIN_1_SECRETION',
+    'GO_POSITIVE_REGULATION_OF_TUMOR_NECROSIS_FACTOR_SECRETION',
+    'GO_NEGATIVE_REGULATION_OF_HUMORAL_IMMUNE_RESPONSE',
+    'GO_NEGATIVE_REGULATION_OF_ADAPTIVE_IMMUNE_RESPONSE',
+    'GO_CYTOKINE_SECRETION',
+    'HALLMARK_ANDROGEN_RESPONSE',
+    'GO_NEGATIVE_REGULATION_OF_LEUKOCYTE_APOPTOTIC_PROCESS',
+    'GO_RESPONSE_TO_TUMOR_NECROSIS_FACTOR',
+    'REACTOME_ACTIVATED_PKN1_STIMULATES_TRANSCRIPTION_OF_AR_ANDROGEN_RECEPTOR_REGULATED_GENES_KLK2_AND_KLK3',
+    'REACTOME_AMYLOID_FIBER_FORMATION',
+    'GO_NEGATIVE_REGULATION_OF_CYTOKINE_PRODUCTION_INVOLVED_IN_IMMUNE_RESPONSE',
+    'GO_INTERFERON_GAMMA_PRODUCTION',
+    'GO_POSITIVE_REGULATION_OF_INTERFERON_GAMMA_PRODUCTION',
+    'GO_INTERLEUKIN_4_PRODUCTION',
+    'GO_HUMORAL_IMMUNE_RESPONSE_MEDIATED_BY_CIRCULATING_IMMUNOGLOBULIN',
+    'GO_INFLAMMATORY_CELL_APOPTOTIC_PROCESS',
+    'GO_CELL_MATRIX_ADHESION',
+    'GO_REGULATION_OF_ADAPTIVE_IMMUNE_RESPONSE',
+    'GO_B_CELL_PROLIFERATION',
+    'GO_POSITIVE_REGULATION_OF_CELL_CELL_ADHESION_MEDIATED_BY_INTEGRIN',
+    'GO_NEGATIVE_REGULATION_OF_VIRAL_TRANSCRIPTION',
+    'GO_POSITIVE_REGULATION_OF_CYTOKINE_SECRETION',
+    'GO_TUMOR_NECROSIS_FACTOR_SECRETION',
+    'GO_ACUTE_INFLAMMATORY_RESPONSE',
+    'REACTOME_NEUTROPHIL_DEGRANULATION',
+    'HALLMARK_APOPTOSIS',
+    'GO_REGULATION_OF_EPITHELIAL_CELL_APOPTOTIC_PROCESS',
+    'GO_NEGATIVE_REGULATION_OF_T_CELL_APOPTOTIC_PROCESS'
+]
+rule elastic_net_heatmaps_days_greater_zero:
+    output:
+        [
+            '{out}/regression_analysis/heatmaps.days_greater_zero/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in ALL_SETS_DAYS_GREATER_ZERO
+        ]
+    run:
+        cmds = [
+            'mkdir -p {}/regression_analysis/heatmaps.days_greater_zero'.format(config['output_location'])
+        ]
+        cmds += [
+            'python heatmap_from_regression.py gene_sets {g_set} {out}/regression_analysis/EN_genes.only_COVID.positive_features.tsv {out}/regression_analysis/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v3.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/regression_analysis/heatmaps.days_greater_zero -a -z'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in ALL_SETS_DAYS_GREATER_ZERO
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
+
+
+
+
+
+
+NEG_GO_SETS = [
+    #'GO_HUMORAL_IMMUNE_RESPONSE',
+    #'GO_INFLAMMATORY_RESPONSE',
     'GO_RESPONSE_TO_OXYGEN_CONTAINING_COMPOUND',
     'GO_WOUND_HEALING',
-    'GO_REGULATION_OF_RESPONSE_TO_CYTOKINE_STIMULUS',
-    'GO_PLATELET_DEGRANULATION',
     'GO_MODULATION_BY_HOST_OF_VIRAL_PROCESS'
+    #'GO_REGULATION_OF_RESPONSE_TO_CYTOKINE_STIMULUS',
+    #'GO_PLATELET_DEGRANULATION',
+    #'GO_MODULATION_BY_HOST_OF_VIRAL_PROCESS',
+    #'GO_FEMALE_SEX_DIFFERENTIATION',
+    'GO_RESPONSE_TO_LIPID',
+    'GO_DEFENSE_RESPONSE_TO_VIRUS',
+    #'GO_NEGATIVE_REGULATION_OF_B_CELL_ACTIVATION',
+    #'GO_NEGATIVE_REGULATION_OF_REGULATORY_T_CELL_DIFFERENTIATION',
+    'GO_MACROPHAGE_ACTIVATION'
 ]
 rule elastic_net_negative_go_heatmaps:
     output:
@@ -321,7 +485,7 @@ rule elastic_net_negative_go_heatmaps:
         ]
     run:
         cmds = [
-            'python heatmap_from_regression.py ../gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v2.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -d'.format(
+            'python heatmap_from_regression.py ../gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v3.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -d'.format(
                 out=config['output_location'],
                 g_set=g_set
             )
@@ -331,10 +495,37 @@ rule elastic_net_negative_go_heatmaps:
             shell('echo "{}"'.format(c))
             shell(c)
 
+ALL_GO_SETS = [
+    'GO_HUMORAL_IMMUNE_RESPONSE',
+    'GO_REGULATION_OF_ADAPTIVE_IMMUNE_RESPONSE',
+    'GO_INNATE_IMMUNE_RESPONSE',
+    'GO_INFLAMMATORY_RESPONSE'
+]
+rule elastic_net_all_go_heatmaps:
+    output:
+        [
+            '{out}/COVID_elastic_net_heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in ALL_GO_SETS
+        ]
+    run:
+        cmds = [
+            'python heatmap_from_regression.py ../gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v2.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -a'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in ALL_GO_SETS
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
 # Positive genes
 POS_REACTOME_SETS = [
     'REACTOME_AMYLOID_FIBER_FORMATION',
-    'REACTOME_TELOMERE_MAINTENANCE'
+    'REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE'
 ]
 rule elastic_net_positive_cannonical_heatmaps:
     output:
@@ -347,11 +538,35 @@ rule elastic_net_positive_cannonical_heatmaps:
         ]
     run:
         cmds = [
-            'python heatmap_from_regression.py ../gsvapy/gene_sets/c2.cp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v2.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -u'.format(
+            'python heatmap_from_regression.py ../gsvapy/gene_sets/c2.cp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v3.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -u'.format(
                 out=config['output_location'],
                 g_set=g_set
             )
             for g_set in POS_REACTOME_SETS
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
+POS_GO_SETS = [
+    'GO_POSITIVE_REGULATION_OF_LEUKOCYTE_ADHESION_TO_VASCULAR_ENDOTHELIAL_CELL'
+]
+rule elastic_net_positive_go_heatmaps:
+    output:
+        [
+            '{out}/COVID_elastic_net_heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in POS_GO_SETS
+        ]
+    run:
+        cmds = [
+            'python heatmap_from_regression.py ../gsvapy/gene_sets/c5.bp.v7.1.symbols.gmt {g_set} {out}/EN_genes.only_COVID.positive_features.tsv {out}/EN_genes.only_COVID.negative_features.tsv AHNMJYDMXX_rsem/DCD_v3.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {out}/COVID_elastic_net_heatmaps -u'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in POS_GO_SETS
         ]
         for c in cmds:
             shell('echo "{}"'.format(c))
@@ -483,22 +698,111 @@ rule nonicu_covid_vs_noncovid_DE:
         shell('echo "{}"'.format(cmd))
         shell(cmd)
 
+#############################################################
 # ICU COVID vs. Englart ARDS
-rule icu_covid_vs_englart_ards_down:
+#############################################################
+rule icu_covid_vs_englart_ards_filter_batch:
+    output:
+        up='{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location']),
+        up_kept='{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_up_DE.kept_genes.filter_DE_AE_04.tsv'.format(config['output_location']),
+        down='{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location']),
+        down_kept='{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_down_DE.kept_genes.filter_DE_AE_04.tsv'.format(config['output_location']),
+        venn_up='{}/englert_vs_albany_de/filter_DE_AE_04/venn_up.pdf'.format(config['output_location']),
+        venn_down='{}/englert_vs_albany_de/filter_DE_AE_04/venn_down.pdf'.format(config['output_location'])
+    run: 
+        cmds=[
+            'python gsea_ebseq_output.py -t {raw}/de_tables/Up.Genes.pp95.flags.tsv -c DE_AE_04 {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.txt {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv -o {{output.up}} -k {{output.up_kept}} -v {{output.venn_up}}'.format(
+                raw=config['raw_data_location']
+            ),
+            'python gsea_ebseq_output.py -t {raw}/de_tables/Down.Genes.pp95.flags.tsv -c DE_AE_04 {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.txt {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv -o {{output.down}} -k {{output.down_kept}} -v {{output.venn_down}}'.format(
+                raw=config['raw_data_location']
+            )
+        ]
+        for cmd in cmds:
+            shell(cmd)
+
+rule icu_covid_vs_englart_ards:
     output:
         up='{}/ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.tsv'.format(config['output_location']),
         down='{}/ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.tsv'.format(config['output_location'])
     run:
         cmds=[
-            'python gsea.py ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.txt ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv -o {output.up}',
-            'python gsea.py ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.txt ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv -o {output.down}'
+            'python gsea_ebseq_output.py {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.txt Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv -o {{output.up}}'.format(
+                raw=config['raw_data_location']
+            ),
+            'python gsea_ebseq_output.py {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.txt Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv -o {{output.down}}'.format(
+                raw=config['raw_data_location']
+            )
         ]
         for cmd in cmds:
             shell(cmd)
 
-#################################################################
-#   Heatmaps
-#################################################################
+
+ENGLERT_VS_ALBANY_SETS = [
+    'GO_VIRAL_LIFE_CYCLE',
+    'REACTOME_INTERFERON_ALPHA_BETA_SIGNALING',
+    'GO_INNATE_IMMUNE_RESPONSE',
+    'GO_RESPONSE_TO_CYTOKINE',
+    'HALLMARK_TNFA_SIGNALING_VIA_NFKB',
+    'GO_VIRAL_GENOME_REPLICATION',
+    'REACTOME_NEDDYLATION',
+    'HALLMARK_INTERFERON_GAMMA_RESPONSE',
+    'GO_NEGATIVE_REGULATION_OF_VIRAL_GENOME_REPLICATION',
+    'HALLMARK_KRAS_SIGNALING_UP'
+]
+
+def read_gene_set(fname):
+    import pandas as pd
+    df = pd.read_csv(fname, sep='\t')
+    return list(df['gene_set'])
+
+rule englert_albany_heatmaps:
+    input:
+        '{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location'])
+    output:
+        [
+            '{out}/englert_vs_albany_de/filter_DE_AE_04/heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location'])
+            )
+        ],
+        [
+            '{out}/englert_vs_albany_de/filter_DE_AE_04/heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location'])
+            )
+        ]
+    run:
+        cmds = ['mkdir -p {}/englert_vs_albany_de/filter_DE_AE_04/heatmaps'.format(config['output_location'])]
+        cmds += [
+            'python heatmap_from_de.py gene_sets {g_set} {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/DCD_v3.tsv {raw}/englert_meta.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/englert_vs_albany_de/filter_DE_AE_04/heatmaps -a'.format(
+                out=config['output_location'],
+                g_set=g_set,
+                raw=config['raw_data_location']
+            ) for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location'])
+            )
+        ]
+        cmds += [
+            'python heatmap_from_de.py gene_sets {g_set} {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv {raw}/Albany_and_Englert/ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/DCD_v3.tsv {raw}/englert_meta.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/englert_vs_albany_de/filter_DE_AE_04/heatmaps -a'.format(
+                out=config['output_location'],
+                g_set=g_set,
+                raw=config['raw_data_location']
+            ) for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_04/ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.filter_DE_AE_04.tsv'.format(config['output_location'])
+            )[:10]
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
+
+##############################################################3
 
 # Up in Englart
 UP_ENGLART_REACTOME_SETS = [
@@ -525,7 +829,7 @@ rule englert_up_Reactome_heatmaps:
         ]
     run:
         cmds = [
-            'python heatmap_from_de.py ../gsvapy/gene_sets/c2.cp.v7.1.symbols.gmt {g_set} ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv AHNMJYDMXX_rsem/DCD_v2.tsv englert_meta.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/ICU_COVID_VS_Englart_ARDS_DE_heatmaps/Up_Englert -d'.format(
+            'python heatmap_from_de.py ../gsvapy/gene_sets/c2.cp.v7.1.symbols.gmt {g_set} ebseq_ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv ebseq_ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv AHNMJYDMXX_rsem/DCD_v2.tsv englert_meta.tsv AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/ICU_COVID_VS_Englart_ARDS_DE_heatmaps/Up_Englert -a'.format(
                 out=config['output_location'],
                 g_set=g_set
             )
