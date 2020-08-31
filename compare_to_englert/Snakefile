@@ -1,0 +1,116 @@
+##
+
+configfile: 'config.json'
+
+rule all:
+    input:
+        '{}/COVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location']),
+        '{}/NONCOVID_ICU_VS_NONICU_DE_GSEA.json'.format(config['output_location']),
+        '{}/ICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location']),
+        '{}/NONICU_COVID_VS_NONCOVID_DE_GSEA.json'.format(config['output_location'])                
+               
+ 
+###############################################################
+#   Data preprocessing
+###############################################################
+rule remove_duplicate_patient:
+    input:
+        ec='{}/genes.ec.no_hg.tab'.format(
+            config['raw_data_location']
+        ),
+        tpm='{}/genes.tpm.no_hg.tab'.format(
+            config['raw_data_location']
+        )
+    output:
+        ec='{}/genes.ec.no_hg.no_C054.tab'.format(
+            config['intermediate_data_location']
+        ),
+        tpm='{}/genes.tpm.no_hg.no_C054.tab'.format(
+            config['intermediate_data_location']
+        )
+    run:
+        cmds=[
+            'python remove_duplicate.py {input.ec} {output.ec}',
+            'python remove_duplicate.py {input.tpm} {output.tpm}'
+        ]
+        for cmd in cmds:
+            shell('echo "{}"'.format(cmd))
+            shell(cmd)
+
+
+#############################################################
+# ICU COVID vs. Englart ARDS
+#############################################################
+
+rule icu_covid_vs_englart_ards_filter_batch_male_only:
+    output:
+        up='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.DE_AE_11.tsv'.format(config['output_location']),
+        up_kept='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE.kept_genes.DE_AE_11.tsv'.format(config['output_location']),
+        down='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.DE_AE_11.tsv'.format(config['output_location']),
+        down_kept='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_down_DE.kept_genes.DE_AE_11.tsv'.format(config['output_location']),
+        venn_up='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_venn_up.pdf'.format(config['output_location']),
+        venn_down='{}/englert_vs_albany_de/filter_DE_AE_11/male_only_venn_down.pdf'.format(config['output_location'])
+    run:
+        cmds=[
+            'python goseq_ebseq_output.py -t {raw}/de_tables/Up.Genes.pp95.flags.tsv -c DE_AE_11 {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.txt {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {{output.up}} -k {{output.up_kept}} -v {{output.venn_up}}'.format(
+                raw=config['raw_data_location']
+            ),
+            'python goseq_ebseq_output.py -t {raw}/de_tables/Down.Genes.pp95.flags.tsv -c DE_AE_11 {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.txt {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab -o {{output.down}} -k {{output.down_kept}} -v {{output.venn_down}}'.format(
+                raw=config['raw_data_location']
+            )
+        ]
+        for cmd in cmds:
+            shell(cmd)
+
+
+def read_gene_set(fname):
+    import pandas as pd
+    df = pd.read_csv(fname, sep='\t')
+    return list(df['gene_set'])
+
+rule englert_albany_heatmaps_male_only:
+    input:
+        '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.DE_AE_11.tsv'.format(config['output_location']),
+        '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.DE_AE_11.tsv'.format(config['output_location'])
+    output:
+        [
+            '{out}/englert_vs_albany_de/filter_DE_AE_11/male_only_heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.DE_AE_11.tsv'.format(config['output_location'])
+            )
+        ],
+        [
+            '{out}/englert_vs_albany_de/filter_DE_AE_11/male_only_heatmaps/{g_set}.heatmap.pdf'.format(
+                out=config['output_location'],
+                g_set=g_set
+            )
+            for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.DE_AE_11.tsv'.format(config['output_location'])
+            )
+        ]
+    run:
+        cmds = ['mkdir -p {}/englert_vs_albany_de/filter_DE_AE_11/male_only_heatmaps'.format(config['output_location'])]
+        cmds += [
+            'python heatmap_from_de.py gene_sets {g_set} {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/DCD_v3.tsv {raw}/englert_meta.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/englert_vs_albany_de/filter_DE_AE_11/male_only_heatmaps -m -a'.format(
+                out=config['output_location'],
+                g_set=g_set,
+                raw=config['raw_data_location']
+            ) for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_up_DE_GSEA.DE_AE_11.tsv'.format(config['output_location'])
+            )
+        ]
+        cmds += [
+            'python heatmap_from_de.py gene_sets {g_set} {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Up.Genes.pp99.Normed.tsv {raw}/Albany_and_Englert/ebseq_males.ARDS.COVID.v.NO_HSCT/Down.Genes.pp99.Normed.tsv {raw}/AHNMJYDMXX_rsem/DCD_v3.tsv {raw}/englert_meta.tsv {raw}/AHNMJYDMXX_rsem/genes.tpm.no_hg.no_C054.tab ARDS/g.tpm.tab -o {out}/englert_vs_albany_de/filter_DE_AE_11/male_only_heatmaps -m -a'.format(
+                out=config['output_location'],
+                g_set=g_set,
+                raw=config['raw_data_location']
+            ) for g_set in read_gene_set(
+                '{}/englert_vs_albany_de/filter_DE_AE_11/male_only_ICU_COVID_VS_Englart_ARDS_down_DE_GSEA.DE_AE_11.tsv'.format(config['output_location'])
+            )
+        ]
+        for c in cmds:
+            shell('echo "{}"'.format(c))
+            shell(c)
